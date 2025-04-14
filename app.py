@@ -7,7 +7,7 @@ import mysql.connector
 from mysql.connector import pooling
 
 
-app = Flask(__name__, static_folder="C:\Users//timow\OneDrive\Documents\Python Files\Homeworkmanager//v1.6.1-dev//frontend", static_url_path="/")
+app = Flask(__name__, static_url_path="/")
 CORS(app)
 
 # ---------- KONFIGURATION ----------
