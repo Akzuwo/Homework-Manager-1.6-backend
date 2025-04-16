@@ -47,7 +47,7 @@ def stundenplan():
 
 @app.route('/aktuelles_fach')
 def aktuelles_fach():
-    # Setze die Zeitzone auf Europe/Berlin (oder deine lokale Zeitzone)
+    # Zeitzone auf Europe/Berlin setzen
     tz = pytz.timezone('Europe/Berlin')
     now = datetime.datetime.now(tz)
     tag = now.strftime('%A')
