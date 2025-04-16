@@ -43,9 +43,12 @@ def stundenplan():
         return jsonify(json.load(f))
 
 
+
 @app.route('/aktuelles_fach')
 def aktuelles_fach():
-    now = datetime.datetime.now()
+    # Setze die Zeitzone auf Europe/Berlin (oder deine lokale Zeitzone)
+    tz = pytz.timezone('Europe/Berlin')
+    now = datetime.datetime.now(tz)
     tag = now.strftime('%A')
     uhrzeit = now.time()
 
@@ -57,10 +60,9 @@ def aktuelles_fach():
         start = datetime.datetime.strptime(stunde["start"], "%H:%M").time()
         ende = datetime.datetime.strptime(stunde["end"], "%H:%M").time()
         if start <= uhrzeit <= ende:
-            endzeit = datetime.datetime.combine(datetime.datetime.today(), ende)
+            endzeit = datetime.datetime.combine(now.date(), ende)
             verbleibend = str(endzeit - now).split('.')[0]
             return jsonify({"fach": stunde["fach"], "verbleibend": verbleibend})
-
     return jsonify({"fach": "Frei", "verbleibend": "-"})
 
 
