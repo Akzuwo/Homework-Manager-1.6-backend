@@ -54,23 +54,49 @@ def aktuelles_fach():
 
     pfad = os.path.join(os.path.dirname(__file__), "stundenplan.json")
     with open(pfad, encoding='utf-8') as f:
-        plan = json.load(f)
+        plan = json.load(f).get(tag, [])
 
-    for stunde in plan.get(tag, []):
-        start = datetime.datetime.strptime(stunde["start"], "%H:%M").time()
-        ende  = datetime.datetime.strptime(stunde["end"],   "%H:%M").time()
-        if start <= uhrzeit <= ende:
-            naive_endzeit = datetime.datetime.combine(now.date(), ende)
-            endzeit = tz.localize(naive_endzeit)
-            verbleibend = str(endzeit - now).split('.')[0]
-            # Hier den Raum aus dem JSON mitgeben
-            return jsonify({
-                "fach":       stunde["fach"],
-                "verbleibend": verbleibend,
-                "raum":       stunde.get("raum", "-")
-            })
+    current = {"fach": "Frei", "verbleibend": "-", "raum": "-"}
+    next_cls = {"start": None, "fach": "-", "raum": "-"}
 
-    return jsonify({"fach": "Frei", "verbleibend": "-", "raum": "-"})
+    def parse_time(t):
+        h, m = map(int, t.split(':'))
+        return now.replace(hour=h, minute=m, second=0, microsecond=0)
+
+    for slot in plan:
+        start = parse_time(slot["start"])
+        ende  = parse_time(slot["end"])
+        # laufende Stunde?
+        if start <= now <= ende:
+            remain = ende - now
+            h, m = divmod(int(remain.total_seconds()//60), 60)
+            current = {
+                "fach":        slot["fach"],
+                "verbleibend": f"{h:02d}:{m:02d}",
+                "raum":        slot.get("raum", "-")
+            }
+        # nächste Stunde (Raum ≠ "-")
+        elif start > now and slot.get("raum", "-") != "-":
+            if next_cls["start"] is None or start < next_cls["start"]:
+                next_cls = {
+                    "start": start,
+                    "fach":  slot["fach"],
+                    "raum":  slot["raum"]
+                }
+
+    # Formatierung
+    if next_cls["start"]:
+        ns = next_cls["start"]
+        next_start = f"{ns.hour:02d}:{ns.minute:02d}"
+    else:
+        next_start = "-"
+
+    return jsonify({
+        **current,
+        "naechste_start":  next_start,
+        "naechster_raum":  next_cls["raum"],
+        "naechstes_fach":  next_cls["fach"]
+    })
 
 
 
