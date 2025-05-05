@@ -50,13 +50,13 @@ def aktuelles_fach():
     tz = pytz.timezone('Europe/Berlin')
     now = datetime.datetime.now(tz)
     tag = now.strftime('%A')
-    uhrzeit = now.time()
 
+    # Lade den Plan
     pfad = os.path.join(os.path.dirname(__file__), "stundenplan.json")
     with open(pfad, encoding='utf-8') as f:
         plan = json.load(f).get(tag, [])
 
-    current = {"fach": "Frei", "verbleibend": "-", "raum": "-"}
+    current  = {"fach": "Frei", "verbleibend": "-", "raum": "-"}
     next_cls = {"start": None, "fach": "-", "raum": "-"}
 
     def parse_time(t):
@@ -66,15 +66,19 @@ def aktuelles_fach():
     for slot in plan:
         start = parse_time(slot["start"])
         ende  = parse_time(slot["end"])
+
         # laufende Stunde?
         if start <= now <= ende:
-            remain = ende - now
-            h, m = divmod(int(remain.total_seconds()//60), 60)
+            # verbleibende Sekunden berechnen
+            delta_s = int((ende - now).total_seconds())
+            minutes, seconds = divmod(delta_s, 60)
+            verbleibend = f"{minutes:02d}:{seconds:02d}"   # MM:SS
             current = {
-                "fach":        slot["fach"],
-                "verbleibend": f"{h:02d}:{m:02d}",
-                "raum":        slot.get("raum", "-")
+                "fach":       slot["fach"],
+                "verbleibend": verbleibend,
+                "raum":       slot.get("raum", "-")
             }
+
         # nächste Stunde (Raum ≠ "-")
         elif start > now and slot.get("raum", "-") != "-":
             if next_cls["start"] is None or start < next_cls["start"]:
@@ -84,7 +88,7 @@ def aktuelles_fach():
                     "raum":  slot["raum"]
                 }
 
-    # Formatierung
+    # Formatierung nächste Startzeit
     if next_cls["start"]:
         ns = next_cls["start"]
         next_start = f"{ns.hour:02d}:{ns.minute:02d}"
@@ -97,6 +101,7 @@ def aktuelles_fach():
         "naechster_raum":  next_cls["raum"],
         "naechstes_fach":  next_cls["fach"]
     })
+
 
 
 
