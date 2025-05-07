@@ -54,7 +54,7 @@
       {"start": "15:00", "end": "15:45", "fach": "Mathematik", "raum": "E13"},
       {"start": "15:45", "end": "15:50", "fach": "Pause"},
       {"start": "15:50", "end": "16:35", "fach": "Mathematik", "raum": "E13"},
-      {"start": "15:45", "end": "23:59", "fach": "Unterrichtsfrei", "raum": "-"}
+      {"start": "16:35", "end": "23:59", "fach": "Unterrichtsfrei", "raum": "-"}
   ],
     "Thursday": [
       {"start": "00:00", "end": "08:00", "fach": "Unterrichtsfrei", "raum": "-"},
