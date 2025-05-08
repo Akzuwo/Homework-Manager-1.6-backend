@@ -1,23 +1,32 @@
-from flask import Flask, jsonify, request, send_from_directory
-from flask_cors import CORS
-import datetime
-import json
 import os
+import json
+import datetime
 import pytz
+from flask import Flask, jsonify, request, send_from_directory, session
+from flask_cors import CORS
 import mysql.connector
 from mysql.connector import pooling
 
-
+# ---------- APP INITIALISIEREN ----------
 app = Flask(__name__, static_url_path="/")
-CORS(app)
 
-# ---------- KONFIGURATION ----------
+# 1) Secret-Keys laden **nach** App-Instanziierung
+with open('/etc/secrets/hwm-session-secret', encoding='utf-8') as f:
+    app.secret_key = f.read().strip()
+
+with open('/etc/secrets/hwm-pw', encoding='utf-8') as f:
+    ADMIN_PASSWORD = f.read().strip()
+
+# 2) CORS so konfigurieren, dass Cookies mitgesendet werden
+CORS(app, supports_credentials=True)
+
+# ---------- DATENBANK-KONFIG ----------
 DB_CONFIG = {
-    "host": "mc-mysql01.mc-host24.de",
-    "user": "u4203_Mtc42FNhxN",             # ← hier anpassen
-    "password": "nA6U=8ecQBe@vli@SKXN9rK9",     # ← hier anpassen
-    "database": "s4203_reports",   # ← hier anpassen
-    "port": 3306
+    "host":     "mc-mysql01.mc-host24.de",
+    "user":     "u4203_Mtc42FNhxN",
+    "password": "nA6U=8ecQBe@vli@SKXN9rK9",
+    "database": "s4203_reports",
+    "port":     3306
 }
 
 # ---------- CONNECTION POOL ----------
@@ -31,27 +40,43 @@ pool = pooling.MySQLConnectionPool(
 def get_connection():
     return pool.get_connection()
 
-#------------APP START ----------
+# ---------- ROUTEN ----------
 
 @app.route("/")
 def root():
     return send_from_directory(app.static_folder, "login.html")
-# ---------- STUNDENPLAN ----------
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    data = request.get_json() or {}
+    pw = data.get('password', '')
+    if pw == ADMIN_PASSWORD:
+        session['role'] = 'admin'
+        return jsonify(status='ok')
+    return jsonify(status='error', message='Ungültiges Passwort'), 401
+
+@app.route('/api/logout', methods=['POST'])
+def api_logout():
+    session.clear()
+    return jsonify(status='ok')
+
+@app.route('/api/secure-data')
+def secure_data():
+    if session.get('role') != 'admin':
+        return jsonify(status='error', message='Unauthorized'), 403
+    return jsonify(status='ok', data='Hier sind geheime Daten!')
+
 @app.route('/stundenplan')
 def stundenplan():
     pfad = os.path.join(os.path.dirname(__file__), "stundenplan.json")
     with open(pfad, encoding="utf-8") as f:
         return jsonify(json.load(f))
 
-
-
 @app.route('/aktuelles_fach')
 def aktuelles_fach():
     tz = pytz.timezone('Europe/Berlin')
     now = datetime.datetime.now(tz)
     tag = now.strftime('%A')
-
-    # Lade den Plan
     pfad = os.path.join(os.path.dirname(__file__), "stundenplan.json")
     with open(pfad, encoding='utf-8') as f:
         plan = json.load(f).get(tag, [])
@@ -66,93 +91,74 @@ def aktuelles_fach():
     for slot in plan:
         start = parse_time(slot["start"])
         ende  = parse_time(slot["end"])
-
-        # laufende Stunde?
         if start <= now <= ende:
-            # verbleibende Sekunden berechnen
             delta_s = int((ende - now).total_seconds())
             minutes, seconds = divmod(delta_s, 60)
-            verbleibend = f"{minutes:02d}:{seconds:02d}"   # MM:SS
+            verbleibend = f"{minutes:02d}:{seconds:02d}"
             current = {
-                "fach":       slot["fach"],
+                "fach":        slot["fach"],
                 "verbleibend": verbleibend,
-                "raum":       slot.get("raum", "-")
+                "raum":        slot.get("raum", "-")
             }
-
-        # nächste Stunde (Raum ≠ "-")
         elif start > now and slot.get("raum", "-") != "-":
             if next_cls["start"] is None or start < next_cls["start"]:
-                next_cls = {
-                    "start": start,
-                    "fach":  slot["fach"],
-                    "raum":  slot["raum"]
-                }
+                next_cls = {"start": start, "fach": slot["fach"], "raum": slot["raum"]}
 
-    # Formatierung nächste Startzeit
-    if next_cls["start"]:
-        ns = next_cls["start"]
-        next_start = f"{ns.hour:02d}:{ns.minute:02d}"
-    else:
-        next_start = "-"
+    next_start = (
+        f"{next_cls['start'].hour:02d}:{next_cls['start'].minute:02d}"
+        if next_cls["start"] else "-"
+    )
 
     return jsonify({
         **current,
-        "naechste_start":  next_start,
-        "naechster_raum":  next_cls["raum"],
-        "naechstes_fach":  next_cls["fach"]
+        "naechste_start": next_start,
+        "naechster_raum": next_cls["raum"],
+        "naechstes_fach": next_cls["fach"]
     })
 
-
-
-
-# ---------- HAUSAUFGABEN ----------
 @app.route('/hausaufgaben')
 def hausaufgaben():
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT fachkuerzel AS fach, beschreibung, DATE(faellig_am) AS faellig_am FROM hausaufgaben")
+        cursor.execute(
+            "SELECT fachkuerzel AS fach, beschreibung, DATE(faellig_am) AS faellig_am "
+            "FROM hausaufgaben"
+        )
         result = cursor.fetchall()
         for item in result:
             item['faellig_am'] = item['faellig_am'].strftime('%Y-%m-%d')
         return jsonify(result)
     except Exception as e:
-        print(f"Fehler /hausaufgaben: {e}")
+        app.logger.error(f"Fehler /hausaufgaben: {e}")
         return jsonify([]), 500
     finally:
-        try:
-            cursor.close()
-            conn.close()
-        except:
-            pass
+        cursor.close()
+        conn.close()
 
-
-# ---------- PRÜFUNGEN ----------
 @app.route('/pruefungen')
 def pruefungen():
     try:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT fachkuerzel AS fach, beschreibung, DATE(pruefungsdatum) AS pruefungsdatum FROM pruefungen")
+        cursor.execute(
+            "SELECT fachkuerzel AS fach, beschreibung, DATE(pruefungsdatum) AS pruefungsdatum "
+            "FROM pruefungen"
+        )
         result = cursor.fetchall()
         for item in result:
             item['pruefungsdatum'] = item['pruefungsdatum'].strftime('%Y-%m-%d')
         return jsonify(result)
     except Exception as e:
-        print(f"Fehler /pruefungen: {e}")
+        app.logger.error(f"Fehler /pruefungen: {e}")
         return jsonify([]), 500
     finally:
-        try:
-            cursor.close()
-            conn.close()
-        except:
-            pass
+        cursor.close()
+        conn.close()
 
-
-# ---------- EINTRAG HINZUFÜGEN ----------
 @app.route('/add_entry', methods=['POST'])
 def add_entry():
-    data = request.json
+    data = request.json or {}
     typ = data.get("typ")
     fach = data.get("fach")
     beschreibung = data.get("beschreibung")
@@ -161,33 +167,27 @@ def add_entry():
     try:
         conn = get_connection()
         cursor = conn.cursor()
-
         if typ == "hausaufgabe":
             cursor.execute(
-                "INSERT INTO hausaufgaben (fachkuerzel, beschreibung, faellig_am) VALUES (%s, %s, %s)",
+                "INSERT INTO hausaufgaben (fachkuerzel, beschreibung, faellig_am) VALUES (%s,%s,%s)",
                 (fach, beschreibung, datum)
             )
         elif typ == "pruefung":
             cursor.execute(
-                "INSERT INTO pruefungen (fachkuerzel, beschreibung, pruefungsdatum) VALUES (%s, %s, %s)",
+                "INSERT INTO pruefungen (fachkuerzel, beschreibung, pruefungsdatum) VALUES (%s,%s,%s)",
                 (fach, beschreibung, datum)
             )
         else:
-            return jsonify({"status": "error", "message": "Ungültiger Typ"}), 400
+            return jsonify(status="error", message="Ungültiger Typ"), 400
 
         conn.commit()
-        return jsonify({"status": "ok"})
+        return jsonify(status="ok")
     except Exception as e:
-        print(f"Fehler /add_entry: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        app.logger.error(f"Fehler /add_entry: {e}")
+        return jsonify(status="error", message=str(e)), 500
     finally:
-        try:
-            cursor.close()
-            conn.close()
-        except:
-            pass
+        cursor.close()
+        conn.close()
 
-
-# ---------- SERVER START ----------
 if __name__ == "__main__":
-    app.run(debug=False, port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=False)
